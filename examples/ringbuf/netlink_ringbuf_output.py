@@ -7,8 +7,7 @@ from bcc import BPF
 
 src = r"""
 #include <linux/netlink.h>
-
-BPF_PERF_OUTPUT(netlink);
+BPF_RINGBUF_OUTPUT(netlink, 1 << 4);
 
 struct event {
         u32           pid_tid;        /* (pid<<32 | tid) of current process */
@@ -39,7 +38,7 @@ int kprobe__netlink_unicast(struct pt_regs *ctx, struct sock *ssk, struct sk_buf
                       event.nlmsg_seq, event.nlmsg_pid, event.portid);
 
 
-    netlink.perf_submit(ctx, &event, sizeof(event));
+    netlink.ringbuf_output(&event, sizeof(event), 0);
 
     return 0;
 }
@@ -266,23 +265,22 @@ def netlink_type_str(type):
     else:
         return 'UNKNOWN'
 
-
 def callback(ctx, data, size):
     event = b['netlink'].event(data)
-    print("%6d %6d %6d %-24s %4d 0x%-8x %12d 0x%-8x 0x%-8x" % \
+    print("%6d %6d %6d %-12s %4d 0x%-8x %12d 0x%-8x 0x%-8x" % \
         (event.pid_tid>>32, event.pid_tid&0xffffffff, event.nlmsg_type, netlink_type_str(event.nlmsg_type), \
         event.nlmsg_len, event.nlmsg_flags, event.nlmsg_seq, event.nlmsg_pid, event.portid))
 
-b['netlink'].open_perf_buffer(callback)
+b['netlink'].open_ring_buffer(callback)
 
 print("Printing netlink() calls, ctrl-c to exit...\n")
 
-print("%-6s %-6s %-6s %-24s %-4s %-10s %-12s %-10s %-10s" % ("PID", "TID", "TYPE", "TYPE-descr", "LEN", "FLAGS", "SEQ", "NL PID", "PORTID"))
-print("%-6s %-6s %-6s %-24s %-4s %-10s %-12s %-10s %-10s" % ("======", "======", "======", "============", "====", "==========", "============", "==========", "=========="))
+print("%-6s %-6s %-6s %-12s %-4s %-10s %-12s %-10s %-10s" % ("PID", "TID", "TYPE", "TYPE-descr", "LEN", "FLAGS", "SEQ", "NL PID", "PORTID"))
+print("%-6s %-6s %-6s %-12s %-4s %-10s %-12s %-10s %-10s" % ("======", "======", "======", "============", "====", "==========", "============", "==========", "=========="))
 
 try:
     while 1:
-        b.perf_buffer_poll()
+        b.ring_buffer_poll()
         # or b.ring_buffer_consume()
         time.sleep(0.1)
 except KeyboardInterrupt:
